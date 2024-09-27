@@ -464,6 +464,8 @@ class Net(nn.Module):
                 "both of them have to be None."
             enc_buf, dec_buf, out_buf = self.init_buffers(
                 x.shape[0], x.device)
+            # print("x[0]", x.shape)
+            # print("enc", enc_buf[..., :].shape)
         else:
             enc_buf, dec_buf, out_buf, = \
                 init_enc_buf, init_dec_buf, init_out_buf

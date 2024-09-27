@@ -172,6 +172,7 @@ def training_runner(
         net_d.train()
 
         use_cache = len(cache) == len(train_loader)
+        logging.info(f"use_cache {use_cache}")
         data = cache if use_cache else enumerate(train_loader)
 
         if is_main_process:
@@ -252,6 +253,7 @@ def training_runner(
             scaler.update()
 
             global_step += 1
+            # logging.info("global step now at: %d" % global_step)
             progress_bar.update(1)
 
             if is_main_process and global_step > 0 and (global_step % config['log_interval'] == 0):
@@ -335,11 +337,7 @@ def training_runner(
                     )
 
                 # don't worry about caching val dataset for now
-                for loader in [dev_loader, val_loader]:
-                    if loader == dev_loader:
-                        loader_name = "dev"
-                    else:
-                        loader_name = "val"
+                for (loader, loader_name) in [(dev_loader, "dev"), (val_loader, "val")]:
                     v_data = enumerate(loader)
                     logging.info(f"Validating on {loader_name} dataset...")
                     v_loss_mel_avg = utils.RunningAvg()
@@ -388,6 +386,8 @@ def training_runner(
                         {f"{loader_name}_audio/pred_{i}": v_output[i].data.cpu().numpy()
                          for i in range(min(3, v_output.shape[0]))}
                     )
+                    del loader
+                    logging.info(f"v_loss_mel_avg {v_loss_mel_avg}")
 
                 net_g.train()
 
@@ -423,6 +423,7 @@ def training_runner(
                     logging.info(
                         f"Saved checkpoints to {g_checkpoint} and {d_checkpoint}")
                     progress_bar.reset()
+                del test_wavs
                 torch.cuda.empty_cache()
 
         scheduler_g.step()

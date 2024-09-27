@@ -4,23 +4,24 @@ Torch dataset object for synthetically rendered spatial data.
 
 import os
 import torch
-from scipy.io.wavfile import read
+# from scipy.io.wavfile import read
+import librosa
 import os
 import glob
 
 
 def get_dataset(dir):
-    original_files = glob.glob(os.path.join(dir, "*_original.wav"))
+    original_files = glob.glob(os.path.join(dir, "*_original.ogg"))
     converted_files = []
     for original_file in original_files:
         converted_file = original_file.replace(
-            "_original.wav", "_converted.wav")
+            "_original.ogg", "_converted.ogg")
         converted_files.append(converted_file)
     return original_files, converted_files
 
 
-def load_wav(full_path):
-    sampling_rate, data = read(full_path)
+def load_wav(full_path, sr):
+    data, sampling_rate = librosa.load(full_path, sr)
     return data, sampling_rate
 
 
@@ -53,8 +54,8 @@ class LLVCDataset(torch.utils.data.Dataset):
         original_wav = self.original_files[idx]
         converted_wav = self.converted_files[idx]
 
-        original_data, o_sr = load_wav(original_wav)
-        converted_data, c_sr = load_wav(converted_wav)
+        original_data, o_sr = load_wav(original_wav, self.sr)
+        converted_data, c_sr = load_wav(converted_wav, self.sr)
 
         assert o_sr == self.sr, f"Expected {self.sr}Hz, got {o_sr}Hz for file {original_wav}"
         assert c_sr == self.sr, f"Expected {self.sr}Hz, got {c_sr}Hz for file {converted_wav}"
