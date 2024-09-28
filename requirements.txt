@@ -4,6 +4,7 @@ torchmetrics
 speechbrain
 auraloss
 librosa
+scikit-learn
 fairseq @ git+https://github.com/One-sixth/fairseq.git
 numpy
 gdown
