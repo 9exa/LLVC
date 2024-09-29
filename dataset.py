@@ -21,7 +21,7 @@ def get_dataset(dir):
 
 
 def load_wav(full_path, sr):
-    data, sampling_rate = librosa.load(full_path, sr)
+    data, sampling_rate = librosa.load(full_path, sr=sr)
     return data, sampling_rate
 
 

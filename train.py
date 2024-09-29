@@ -36,6 +36,12 @@ def net_g_step(
         output = net_g(og)
     return output, gt, og
 
+def keep_most_recent_files(dir: str, pattern: str, num_files: str):
+    files = glob.glob(os.path.join(dir, pattern))
+    files.sort()
+    for f in files[:-num_files]:
+        print(f"Removing {f}")
+        os.remove(f)
 
 def training_runner(
     rank,
@@ -44,7 +50,7 @@ def training_runner(
     training_dir,
 ):
     log_dir = os.path.join(training_dir, "logs")
-    checkpoint_dir = os.path.join(training_dir, "checkpoints")
+    checkpoint_dir = os.path.join(training_dir, "checkpointz")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -316,80 +322,83 @@ def training_runner(
                     {f"train_audio/pred_{i}": output[i].data.cpu().numpy()
                      for i in range(min(3, output.shape[0]))}
                 )
-                net_g.eval()
 
-                # load audio from benchmark dir
-                test_wavs = [
-                    (
-                        os.path.basename(p),
-                        utils.load_wav_to_torch(p, config['data']['sr']),
-                    )
-                    for p in glob.glob(config['test_dir'] + "/*.wav")
-                ]
+                if not config.get('skip_validation', False):
+                    net_g.eval()
 
-                logging.info("Testing...")
-                for test_wav_name, test_wav in tqdm(test_wavs, total=len(test_wavs)):
-                    test_out = net_g(test_wav.unsqueeze(
-                        0).unsqueeze(0).to(device))
-                    audio_dict.update(
-                        {f"test_audio/{test_wav_name}":
-                            test_out[0].data.cpu().numpy()}
-                    )
+                    # load audio from benchmark dir
+                    test_wavs = [
+                        (
+                            os.path.basename(p),
+                            utils.load_wav_to_torch(p, config['data']['sr']),
+                        )
+                        for p in glob.glob(config['test_dir'] + "/*.wav")
+                    ]
 
-                # don't worry about caching val dataset for now
-                for (loader, loader_name) in [(dev_loader, "dev"), (val_loader, "val")]:
-                    v_data = enumerate(loader)
-                    logging.info(f"Validating on {loader_name} dataset...")
-                    v_loss_mel_avg = utils.RunningAvg()
-                    v_loss_fairseq_avg = utils.RunningAvg()
-                    v_mcd_avg = utils.RunningAvg()
+                    logging.info("Testing...")
+                    for test_wav_name, test_wav in tqdm(test_wavs, total=len(test_wavs)):
+                        test_out = net_g(test_wav.unsqueeze(
+                            0).unsqueeze(0).to(device))
+                        audio_dict.update(
+                            {f"test_audio/{test_wav_name}":
+                                test_out[0].data.cpu().numpy()}
+                        )
 
-                    with torch.no_grad():
-                        for v_batch_idx, v_batch in tqdm(v_data, total=len(loader)):
-                            v_output, v_gt, og = net_g_step(
-                                v_batch, net_g, device, config['fp16_run'])
+                    # don't worry about caching val dataset for now
+                    for (loader, loader_name) in [(dev_loader, "dev"), (val_loader, "val")]:
+                        v_data = enumerate(loader)
+                        logging.info(f"Validating on {loader_name} dataset...")
+                        v_loss_mel_avg = utils.RunningAvg()
+                        v_loss_fairseq_avg = utils.RunningAvg()
+                        v_mcd_avg = utils.RunningAvg()
+
+                        with torch.no_grad():
+                            for v_batch_idx, v_batch in tqdm(v_data, total=len(loader)):
+                                v_output, v_gt, og = net_g_step(
+                                    v_batch, net_g, device, config['fp16_run'])
+
+                            if config['aux_mel']['c'] > 0:
+                                v_loss_mel = utils.aux_mel_loss(
+                                    output, gt, config) * config['aux_mel']['c']
+                                v_loss_mel_avg.update(v_loss_mel)
+                            if fairseq_model is not None:
+                                with autocast(enabled=config['fp16_run']):
+                                    v_loss_fairseq = utils.fairseq_loss(
+                                        output, gt, fairseq_model) * config['aux_fairseq']['c']
+                                    v_loss_fairseq_avg.update(v_loss_fairseq)
+                            v_mcd = utils.mcd(
+                                v_output, v_gt, config['data']['sr'])
+                            v_mcd_avg.update(v_mcd)
 
                         if config['aux_mel']['c'] > 0:
-                            v_loss_mel = utils.aux_mel_loss(
-                                output, gt, config) * config['aux_mel']['c']
-                            v_loss_mel_avg.update(v_loss_mel)
+                            scalar_dict.update(
+                                {f"{loader_name}_metrics/mel": v_loss_mel_avg(),
+                                f"{loader_name}_metrics/mcd": v_mcd_avg()}
+                            )
+                            v_loss_mel_avg.reset()
                         if fairseq_model is not None:
-                            with autocast(enabled=config['fp16_run']):
-                                v_loss_fairseq = utils.fairseq_loss(
-                                    output, gt, fairseq_model) * config['aux_fairseq']['c']
-                                v_loss_fairseq_avg.update(v_loss_fairseq)
-                        v_mcd = utils.mcd(
-                            v_output, v_gt, config['data']['sr'])
-                        v_mcd_avg.update(v_mcd)
-
-                    if config['aux_mel']['c'] > 0:
-                        scalar_dict.update(
-                            {f"{loader_name}_metrics/mel": v_loss_mel_avg(),
-                             f"{loader_name}_metrics/mcd": v_mcd_avg()}
+                            scalar_dict.update(
+                                {f"{loader_name}_metrics/fairseq": v_loss_fairseq_avg()}
+                            )
+                            v_loss_fairseq_avg.reset()
+                        v_mcd_avg.reset()
+                        audio_dict.update(
+                            {f"{loader_name}_audio/gt_{i}": v_gt[i].data.cpu().numpy()
+                            for i in range(min(3, v_gt.shape[0]))}
                         )
-                        v_loss_mel_avg.reset()
-                    if fairseq_model is not None:
-                        scalar_dict.update(
-                            {f"{loader_name}_metrics/fairseq": v_loss_fairseq_avg()}
+                        audio_dict.update(
+                            {f"{loader_name}_audio/in_{i}": og[i].data.cpu().numpy()
+                            for i in range(min(3, og.shape[0]))}
                         )
-                        v_loss_fairseq_avg.reset()
-                    v_mcd_avg.reset()
-                    audio_dict.update(
-                        {f"{loader_name}_audio/gt_{i}": v_gt[i].data.cpu().numpy()
-                         for i in range(min(3, v_gt.shape[0]))}
-                    )
-                    audio_dict.update(
-                        {f"{loader_name}_audio/in_{i}": og[i].data.cpu().numpy()
-                         for i in range(min(3, og.shape[0]))}
-                    )
-                    audio_dict.update(
-                        {f"{loader_name}_audio/pred_{i}": v_output[i].data.cpu().numpy()
-                         for i in range(min(3, v_output.shape[0]))}
-                    )
-                    del loader
-                    logging.info(f"v_loss_mel_avg {v_loss_mel_avg}")
-
-                net_g.train()
+                        audio_dict.update(
+                            {f"{loader_name}_audio/pred_{i}": v_output[i].data.cpu().numpy()
+                            for i in range(min(3, v_output.shape[0]))}
+                        )
+                        del loader
+                        logging.info(f"v_loss_mel_avg {v_loss_mel_avg}")
+                    
+                    del test_wavs
+                    net_g.train()
 
                 utils.summarize(
                     writer=writer,
@@ -420,10 +429,17 @@ def training_runner(
                         global_step,
                         d_checkpoint
                     )
+                    retain_checkpoints = config.get('retain_checkpoints', None)
+                    if retain_checkpoints is not None:
+                        keep_most_recent_files(
+                            checkpoint_dir, "G_*.pth", retain_checkpoints)
+                        keep_most_recent_files(
+                            checkpoint_dir, "D_*.pth", retain_checkpoints)
+
                     logging.info(
                         f"Saved checkpoints to {g_checkpoint} and {d_checkpoint}")
                     progress_bar.reset()
-                del test_wavs
+                
                 torch.cuda.empty_cache()
 
         scheduler_g.step()
