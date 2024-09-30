@@ -270,7 +270,6 @@ def val_split(root_path: Path | str,
     for file in tqdm(val_files, unit='file'):
         shutil.move(file, val_path/file.name)
 
-
 def main():
     parser = argparse.ArgumentParser()
     # parser.add_argument("--root_path", help="Path to dataset to be processed", type=str, required=True, default='.LibriSpeech/')
