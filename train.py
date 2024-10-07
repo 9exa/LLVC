@@ -38,10 +38,9 @@ def net_g_step(
 
 def keep_most_recent_files(dir: str, pattern: str, num_files: str):
     files = glob.glob(os.path.join(dir, pattern))
-    files.sort()
-    for f in files[:-num_files]:
-        print(f"Removing {f}")
-        os.remove(f)
+    files.sort(key=lambda x: int(os.path.splitext(os.path.basename(x))[0].split('_')[-1]))
+    for file in files[:-num_files]:
+        os.remove(file)
 
 def training_runner(
     rank,
