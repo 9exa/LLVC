@@ -43,7 +43,7 @@ python -m minimal_rvc._infer_folder \
                                     --out_path "f_8312_ls360" \
                                     --flatten \
                                     --model_path "llvc_models/models/rvc/f_8312_32k-325.pth" \
-                                    --model_name "f_8312" \
+                                    --model_name "LLVC/femalemasc1_360nr/dev LLVC/femalemasc1_360nr/train LLVC/femalemasc1_360nr/val" \
                                     --target_sr 16000 \
                                     --f0_method "rmvpe" \
                                     --val_percent 0.02 \

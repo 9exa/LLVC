@@ -24,6 +24,7 @@ def convert_folder(
     f0_method: str = 'rmvpe',
     overwrite_converted: bool = False,
     format: str = 'ogg',
+    target_sr: int = 16000,
     converted_path: Optional[Path | str] = None
 ):
     """
@@ -49,18 +50,21 @@ def convert_folder(
 
     # (you like that walrus operator? pretty cool huh)
     files  = sum([list(root_path.glob(f'*.{ext}')) for ext in ['wav', 'flac', 'ogg']], [])
+    
+    # do not convert if the file is already converted unless overwrite_converted is True
+    files = list(filter(lambda wav: ('_original' in wav.name) and ((not '_converted' in wav.name) or (overwrite_converted)), files))
+    
     for wav in (progress := tqdm(files, unit="file")):
 
-        # do not convert if the file is already converted unless overwrite_converted is True
-        if ('_converted' in wav.name) and (not overwrite_converted):
-            progress.set_description(
-                f'{wav.name} is already converted. Skipping...')
-            continue
+        # if ('_converted' in wav.name) and (not overwrite_converted):
+        #     progress.set_description(
+        #         f'{wav.name} is already converted. Skipping...')
+        #     continue
 
         # never overwrite resampled files
-        if '_original' not in wav.name:
-            progress.set_description(f'{wav.name} not original. Skipping...')
-            continue
+        # if '_original' not in wav.name:
+        #     progress.set_description(f'{wav.name} not original. Skipping...')
+        #     continue
 
         # get the extension and create the converted path
         extension = wav.name.split('.')[-1]
@@ -70,12 +74,12 @@ def convert_folder(
 
         # this is the case where the file is already converted and is not contained in the root_path
         if converted_wav.exists() and not overwrite_converted:
-            progress.set_description(
-                f'{converted_wav} already exists. Skipping...')
+            # progress.set_description(
+            #     f'{converted_wav} already exists. Skipping...')
             continue
 
         # convert and save (explicitly typed to avoid misconstruing the audio type for something else)
-        out: AudioSegment = model.single(sid=1,
+        out: np.ndarray = np.array(model.single(sid=1,
                                          input_audio=str(wav),
                                          embedder_model_name='hubert_base',
                                          embedding_output_layer='auto',
@@ -87,8 +91,14 @@ def convert_folder(
                                          index_rate=None,
                                          f0_relative=True,
                                          output_dir='out')
-
-        out.export(converted_wav, format=format.upper())
+                                            .get_array_of_samples())
+        # out = out.unsqueeze(0)    
+        # from Int16 to float32               
+        # out = out.astype(np.float32) / 32768.0   
+        out = librosa.util.buf_to_float(out)
+        out = librosa.resample(out, orig_sr=model.tgt_sr, target_sr=target_sr)
+        subtype = "vorbis" if format == "ogg" else None
+        sf.write(converted_wav, out, target_sr, format=format, subtype=subtype)
         
 
 def main():
@@ -132,7 +142,7 @@ def main():
     f0_method: str = args.f0_method
 
     out_path.mkdir(exist_ok=True)
-    for folder in ['train', 'dev', 'val']:
+    for folder in ['dev', 'val', 'train']:
         convert_folder(
             root_path=Path(f'./{root_path}/{folder}'),
             model_path=Path(f'./{model_path}'),
