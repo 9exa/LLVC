@@ -466,11 +466,13 @@ def train_model(
     torch.backends.cudnn.deterministic = False
     torch.backends.cudnn.benchmark = False
 
+    nprocs = max(len(gpus), 1)
+
     mp.spawn(
         training_runner,
-        nprocs=len(gpus),
+        nprocs=nprocs,
         args=(
-            len(gpus),
+            nprocs,
             config,
             training_dir
         )
